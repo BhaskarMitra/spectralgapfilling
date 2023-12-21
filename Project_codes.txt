@@ -1,0 +1,1454 @@
+#clears all objects from the memory, providing a fresh R environment.
+rm(list = ls())
+
+#Sets the penalty for displaying numbers in scientific notation to a high value
+options(scipen=999)
+
+#These lines set the working directory to a specified path
+wd <- "path location"
+setwd(wd)
+
+
+
+# Partitioning ratio of data partitioned into training and testing data sets
+a1 = 0.7
+
+# This code creates a vector of package names and then loads each package into the R session.
+
+d1 <- c('WaveletComp', 'waveslim', 'ggpubr',  'tidyverse', 
+        'ellipsis', 'readxl', 'TSstudio', 'plotly', 'lubridate', 
+        'dplyr', 'lubridate', 'datasets', 'datasets','tibble', 'ggplot2', 'DescTools', 
+        'invctr', 'REddyProc', 'purrr', 'dplyr', 'tidyverse', 'lubridate', 'tidyquant',  
+        'dplyr', 'lubridate','ggplot2', 'gridExtra', 'grid',  'patchwork', 'dplyr','readr',
+        'cowplot', 'patchwork')
+
+
+library(car) #package to calculate Variance Inflation Factor
+library(corrplot) #correlation plots
+library(leaps) #best subsets regression
+library(glmnet) #for elastic net
+library(caret) #parameter tuning
+
+
+
+lapply(d1, library, character.only=TRUE)
+
+
+#Data loading and transformation:
+
+d0 <- "Spectral_la8_CC_2009"
+
+d1 <- read.csv('CC_2009_2021.csv')
+
+#str(d1)
+#names(d1)
+#attach(d1)
+#summary(d1)
+#View(d1)
+
+
+
+# Description of the variables: 
+#Jday = Julian day of year
+#d1$Tsoil = Soil temp. at 5 cm 
+#d1$Tair  = Air temperature
+#d1$SWC = Soil moisture content
+#d1$PAR = Photosynthetically active radiation (as surrogate for GPP)
+#d1$SR = ungapfilled soil respiration data
+
+
+d2 <- data.frame(d1$Jday, d1$Tsoil, d1$Tair, d1$SWC, d1$PAR, d1$SR, stringsAsFactors = FALSE)
+
+#summary(d2)
+#names(d2)
+
+
+
+
+
+# Multiresolution Analysis (MRA) with the mra Function:
+
+
+#This line performs the multiresolution analysis of soil temperature (d1.Tsoil)  using the "mra" function 
+
+Ts_modwt <- mra(d2$d1.Tsoil, z1, 12,"modwt")
+
+# "la8" refers to the Daubechies wavelet with 8 coefficients.
+z1 <- "la8"
+
+# 12 represent the number of levels or scales of decomposition in the MRA.
+
+#"modwt": Stands for the "Maximal Overlap Discrete Wavelet Transform", 
+# a variant of the discrete wavelet transform that is useful for time series analysis.
+
+
+names(Ts_modwt) <- c("d1_ts", "d2_ts", "d3_ts", "d4_ts", "d5_ts", 
+                     "d6_ts",  "d7_ts", "d8_ts", "d9_ts", "d10_ts", 
+                     "d11_ts", "d12_ts", "s_ts")
+
+
+
+#Multiresolution analysis of soil moisture (d1.SWC) 
+SWC_modwt <- mra(d2$d1.SWC, z1, 12, "modwt")
+
+names(SWC_modwt) <- c("d1_swc", "d2_swc", "d3_swc", "d4_swc", 
+                      "d5_swc", "d6_swc", "d7_swc", "d8_swc", 
+                      "d9_swc", "d10_swc","d11_swc","d12_swc",
+                      "s_swc")
+
+
+#Multiresolution analysis of PAR (d1.PAR)
+PAR_modwt <- mra(d2$d1.PAR, z1, 12, "modwt")
+
+names(PAR_modwt) <- c("d1_par", "d2_par", "d3_par", "d4_par", 
+                      "d5_par", "d6_par", "d7_par", "d8_par", 
+                      "d9_par", "d10_par", "d11_par","d12_par",
+                      "s_par")
+
+#Sub-signals with two different types of coefficients were produced: detailed (d1-d12) and approximation (S).
+
+# 1) Hourly scale: d1 (0.5 hour), d2 (1 hour), d3 (2 hours)
+# 2) Diel scale: d4 (4 hours), d5 (8 hours), d6 (16 hours), d7 (1.33 days)
+# 3) Synoptic scale: d8 (2.66 days), d9 (5.33 days), d10 (10.67 days), d11 (21.33 days)
+# 4) Seasonal scale: d12 (42.67 days). 
+
+
+# By combining specific components of the MRA results, spectrally recontructed time series of PAR is being created
+
+
+par_diel <- (PAR_modwt$d4_par + PAR_modwt$d5_par + 
+               PAR_modwt$d6_par + PAR_modwt$d7_par + PAR_modwt$s_par)
+
+# The reconstructed (ts_syn) time series of soil temperature (ta) by combining the seasonal and synoptic scales
+
+ts_syn <- (Ts_modwt$d8_ta + Ts_modwt$d9_ta + Ts_modwt$d10_ta + Ts_modwt$d11_ta +  
+             Ts_modwt$d12_ta + Ts_modwt$s_ta)
+
+# The reconstructed (swc_seas) time series of soil moisture (swc) by combining the seasonal and synoptic scales
+
+swc_seas <- (SWC_modwt$d8_swc + SWC_modwt$d9_swc + SWC_modwt$d10_swc + 
+               SWC_modwt$d11_swc + SWC_modwt$d12_swc + SWC_modwt$s_swc)
+
+
+
+# Create new dataframe by adding the reconstructed time series
+# d1$LE Ungapfilled Latent energy
+
+z4 <- data.frame(d2$d1.Jday,  par_diel, ts_syn, swc_seas, 
+                              d1$PAR, d1$SWC, d1$Tsoil, 
+                              d1$LE,d2$d1.SR)
+
+#-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#In the code provided, missing values are generated in the SR column using the 
+#missForest::prodNA function.  The missingness is controlled by the noNA parameter, which 
+#determines the proportion of missing values to generate. 
+
+
+
+# creating random gaps in the SR data
+df <- data.frame(LE,SR)
+
+# creating 20 time series with random distribution in the time series
+
+# check this code 
+for (i in 1:20){
+  a <- bind_cols(df[1],missForest::prodNA(df[-1],noNA=i/100))
+  
+  write.csv(a, paste0(gaps_folder, "/","gaps_",i, ".csv"), row.names = FALSE)  
+}
+
+
+file_list <- list.files(path=gaps_folder, 
+                        pattern="*.csv") #  create list of all .csv files in folder
+
+# read in each .csv file in file_list and rbind them into a data frame called data 
+
+data <- do.call("cbind", lapply(file_list, function(x) 
+  read.csv(paste(gaps_folder, "/", x, sep=''), stringsAsFactors = FALSE)))
+
+
+d4 <- cbind(d3, data)
+
+#-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+# General approach for analysing data 
+
+#1) Prepares the data: Extracts the relevant columns from the sr data frame, 
+#removes rows with missing values, and splits the data into training and testing sets.
+
+#2) Defines the training and testing matrices.
+
+#3) Creates the objects for the training and testing data.
+  
+#4) Sets up the grid of hyperparameters for tuning using expand.grid().
+  
+#5) Performs cross-validation and hyperparameter tuning using the train() function from the caret package.
+
+#6) Selects the best hyperparameters from parameter tuning.
+  
+#7) Defines the best model with the best hyperparameters obtained.
+
+#8) Makes predictions on the training data and evaluates the model performance using various metrics 
+#(e.g., MSE, MAE, MAPE, R2, RMSE, percent bias, bias).
+
+#9) Makes predictions on the testing data and evaluates  the model performance using the same metrics.
+
+#10) Generates forecasts by making predictions on the  entire dataset.
+
+#11) Saves the results and forecasts into CSV files.
+
+#12) The code repeats the above steps for each  iteration of the for loop, with the value 
+#of j determining the iteration number. The resulting 
+#evaluation metrics, forecasts, and other outputs are saved into separate CSV files for each iteration.
+
+#---------------------------------------------------------------------------------------------
+
+#3) Code 3: running the ELASTICNET across the loop for 20 different versions of Soil respiration 
+
+
+# This R script performs a sophisticated analysis using Elastic Net regression, 
+# a type of regularized linear regression that combines both L1 and L2 regularization. 
+# It involves multiple steps, including data partitioning, model training, and evaluation. 
+# Here's a detailed explanation of the script:
+
+a1 = 0.7  # for partitiong data into 70:30 ratios 
+
+#Starts a loop running from 5 to 25. This loop suggests 
+#running the Elastic Net function across 20 different versions 
+#of  NEE with varying gap distributions.
+
+#Data Preparation Inside the Loop:
+
+#The loop iterates over different columns of a 
+#dataset (sr). For each iteration, it selects a subset of the data, omits 
+#missing values, and then splits this data into training (trainc) and testing (testc) 
+#sets based on the ratio defined by a1.
+
+for (j in 5:25){
+  
+  s3.v2 <- sr[,c(2:4,j)]
+  s3.v3 <- na.omit(s3.v2)
+  d5 <- s3.v3
+  
+  split = sample.split(d5,SplitRatio = a1)
+  trainc = subset(d5, split ==TRUE)
+  testc = subset(d5, split ==FALSE)
+  
+  names(trainc)[4] <- "sr"
+  names(testc)[4] <- "sr"
+  
+  newx <- as.matrix(trainc[, 1:3])
+  newy <- as.matrix(testc[, 1:3])
+  
+  x <- as.matrix(trainc[, 1:3])
+  y <- trainc[,4]
+  
+  #the expand.grid() function builds a sequence of numbers 
+  #for what the caret package will automatically use. 
+  
+  #Alpha from 0 to 1 by 0.2 increments; remember that this is bound by 0 and 1 Lambda 
+  #from 0.00 to 0.2 in steps of 0.02
+  
+  #Setting up Elastic Net Model Parameters and Training the Model:
+  
+  #The script sets up a grid for hyperparameter tuning of the Elastic Net model using expand.grid, specifying ranges for alpha and lambda.
+  #It then configures a 10-fold cross-validation control using trainControl from the caret package.
+  #The Elastic Net model (glmnet method) is trained using the train function on the training data with the defined grid and control settings.
+  
+  
+  grid <- expand.grid(.alpha = seq(0,1, by=.2), 
+                      .lambda = seq(0.00, 0.2, 
+                                    by = 0.02))
+  
+  
+  #In 10-fold cross-validation (CV), the data is partitioned into an equal number of  
+  #subsets (folds) and a separate model is built on 
+  # each 10-1 set  and then tested on the corresponding holdout 
+  #set with the results  combined (averaged) to determine 
+  # the final parameters. 
+  
+  control <- trainControl(method = "repeatedCV",
+                          number = 10,
+                          repeats = 5)
+  
+  t1 = train(sr  ~., 
+             data = trainc, 
+             method = "glmnet", 
+             trControl = control, 
+             tuneGrid = grid)
+  
+  #Determining the optimal tuning parameters 
+  
+  enet <- glmnet(x, y, 
+                 family = "gaussian", 
+                 alpha = t1$bestTune$alpha, 
+                 lambda = t1$bestTune$lambda)
+  
+  train.probs <- predict(enet, 
+                         newx = newx, 
+                         type = "response",  
+                         alpha = t1$bestTune$alpha, 
+                         lambda = t1$bestTune$lambda)
+  
+  b1 <- as.numeric(train.probs)
+  b2 <- as.numeric(trainc[,c(4)])
+  
+  
+  # Model Evaluation and Prediction:
+  
+  # After training, the best tuning parameters (alpha and lambda) are extracted from the model.
+  # These parameters are used to create an Elastic Net model (glmnet) and to make predictions on both the training and testing data.
+  # Various performance metrics like Mean Squared Error (MSE), Mean Absolute Error (MAE), Mean Absolute Percentage Error (MAPE), 
+  #correlation coefficient (r2), Root Mean Squared Error (RMSE), Percent Bias (pbias), 
+  #and Bias are calculated for both training and testing predictions.
+  
+  
+  ms <- mse(b1,b2)
+  mae <- mae(b1,b2)
+  mape <- mape(b1,b2)
+  r2 <- cor(b1,b2)
+  rmse <- rmse(b1,b2)
+  pbias <- percent_bias(b1,b2)
+  bias <- bias(b1,b2)
+  
+  df_train <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  test.probs <- predict(enet, 
+                        newx = newy, 
+                        type = "response", 
+                        alpha = t1$bestTune$alpha, 
+                        lambda = t1$bestTune$lambda)
+  
+  b3 <- as.numeric(test.probs)
+  b4 <- as.numeric(testc[,c(4)])
+  
+  ms <- mse(b3,b4)
+  mae <- mae(b3,b4)
+  mape <- mape(b3,b4)
+  r2 <- cor(b3,b4)
+  rmse <- rmse(b3,b4)
+  pbias <- percent_bias(b3,b4)
+  bias <- bias(b3,b4)
+  
+  df_test <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  
+  
+  #Forecasting and Output Generation:
+  
+  # The model is used to generate forecasts for another dataset (d4).
+  # These forecasts are added to a data frame (d2), and a new column (gapfilled) is created by combining an existing column with the forecasts.
+  # The script writes various outputs to CSV files, including the data with forecasts (d2) and performance metrics for training, testing, and the full dataset.
+  
+  #Final Data Analysis:
+  # In the final part of the loop, additional performance metrics are calculated for a subset of d2 and written to a CSV file.
+  
+  
+  
+  forecast <- predict(enet, 
+                      newx = d4, 
+                      type = "response",  
+                      alpha = t1$bestTune$alpha, 
+                      lambda = t1$bestTune$lambda)
+  
+  b5 <- as.numeric(forecast)
+  d2$forecast <- b5
+  #names(d2)
+  d2$gapfilled <- coalesce(d2[,c(5)], d2$forecast)
+  
+  dir <- file.path(wd1,'/')
+  #dir <- file.path(wd1,)
+  
+  f1 <- paste0("output_",1,".csv")
+  f2 <- paste0("train_",j,".csv")
+  f3 <- paste0("test_",j,".csv")
+  
+  write.csv(d2,  paste0(dir, f1), row.names=FALSE)
+  write.csv(df_train,  paste0(dir, f2), row.names=FALSE)
+  write.csv(df_test,  paste0(dir, f3), row.names=FALSE)
+  
+  d7 <- d2[,c(5,7)]
+  d7.v2 <- na.omit(d7)
+  
+  b6 <- as.numeric(d7.v2$d1.d2.d1.SR)
+  b7 <- as.numeric(d7.v2$forecast)
+  
+  
+  ms <- mse(b6,b7)
+  mae <- mae(b6,b7)
+  mape <- mape(b6,b7)
+  r2 <- cor(b6,b7)
+  rmse <- rmse(b6,b7)
+  pbias <- percent_bias(b6,b7)
+  bias <- bias(b6,b7)
+  
+  
+  df_full <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  f4 <- paste0("full",j,".csv")
+  write.csv(df_full,  paste0(dir, f4), row.names=FALSE)
+  
+  
+}
+
+
+#----------------------------------------------------------------------------------------------------------------------
+
+#4) Code 4: running the RANDOMFOREST across the loop for 20 different versions of Soil respiration 
+
+# General comments
+
+#Initial Setup and Library Loading:
+
+#  a1 = 0.7: Sets a variable a1 to 0.7, which is used later to partition the data into a 70:30 training-to-testing ratio.
+
+#Libraries rpart, partykit, randomForest, xgboost, and caret are loaded for various machine learning and data manipulation tasks.
+
+#Loop for Model Training and Evaluation:
+#The for loop runs from 5 to 25, indicating that the operations inside the loop will be repeated for each value of j in this range.
+
+#Data Preparation:
+#s3.v2 and s3.v3: Selects specific columns from the sr dataset and removes rows with NA values.
+
+#split, trainc, testc: Splits the data into training and testing sets based on the ratio defined in a1.
+
+#Model Training with Random Forest:
+
+#Sets up control parameters for training (fitControl) using 10-fold cross-validation.
+
+#Defines a tuning grid (tunegrid) for the Random Forest model, specifying the range of mtry and ntree parameters.
+#Trains the Random Forest model (rf_model) on the training data.
+
+#Model Evaluation and Predictions:
+
+#Extracts the final model (best.linear) from the trained Random Forest model.
+#Makes predictions on the training, testing, and an additional dataset d4.
+#Calculates various performance metrics (MSE, MAE, MAPE, R², RMSE, Percent Bias, Bias) for the training and testing sets.
+
+#Output Generation and Writing to Files:
+
+#Adds a forecast column to d2 and creates a gapfilled column.
+#Writes various datasets (d2, df_train, df_test, df_full) to CSV files in a specified directory (wd1).
+#Final Data Analysis and Output for Each Iteration:
+
+#For each iteration of j, performs a final analysis on a subset of d2 and writes the results to a CSV file.
+
+
+
+a1 = 0.7  # for partitiong data into 70:30 ratios 
+
+
+library(rpart)        #classification and regression trees
+library(partykit)     #treeplots
+library(randomForest) #random forests
+library(xgboost)      #gradient boosting
+library(caret)        #tune hyper-parameters
+
+
+for (j in 5:25){
+  
+  s3.v2 <- sr[,c(1:4,6,j)]
+  s3.v3 <- na.omit(s3.v2)
+  
+  d5 <- s3.v3
+  
+  split = sample.split(d5,SplitRatio = a1)
+  
+  trainc = subset(d5, split ==TRUE)
+  testc = subset(d5, split ==FALSE)
+  
+  names(trainc)[4] <- "sr"
+  names(testc)[4] <- "sr"
+  
+  #names(trainc)
+  #names(testc)
+  
+  newx <- as.matrix(trainc[, 1:3])
+  newy <- as.matrix(testc[, 1:3])
+  
+  x <- as.matrix(trainc[, 1:3])
+  y <- trainc[,4]
+  
+  b2 <- as.numeric(trainc[,c(4)])
+  b4 <- as.numeric(testc[,c(4)])
+  
+  fitControl  <- trainControl(method="cv", 
+                              number=10, 
+                              savePredictions = TRUE)
+  
+  tunegrid <- expand.grid(.mtry=c(1:15),
+                          .ntree=c(50,100,150,500))
+  
+  rf_model <- train(sr ~ ., 
+                    data = trainc,  
+                    method = "rf", 
+                    tuneGrid=tunegrid,
+                    trControl = fitControl, 
+                    verbose = FALSE)
+  
+  
+  best.linear <- rf_model$finalModel
+  
+  train.probs = predict(best.linear,newdata = trainc)
+  test.probs = predict(best.linear, newdata = testc)
+  forecast = predict(best.linear, newdata = d4)
+  
+  
+  b1 <- as.numeric(train.probs)
+  b2 <- as.numeric(trainc[,c(4)])
+  
+  ms <- mse(b1,b2)
+  mae <- mae(b1,b2)
+  mape <- mape(b1,b2)
+  r2 <- cor(b1,b2)
+  rmse <- rmse(b1,b2)
+  pbias <- percent_bias(b1,b2)
+  bias <- bias(b1,b2)
+  df_train <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  test.probs = predict(best.linear, newdata = testc)
+  
+  b3 <- as.numeric(test.probs)
+  b4 <- as.numeric(testc[,c(4)])
+  
+  ms <- mse(b3,b4)
+  mae <- mae(b3,b4)
+  mape <- mape(b3,b4)
+  r2 <- cor(b3,b4)
+  rmse <- rmse(b3,b4)
+  pbias <- percent_bias(b3,b4)
+  bias <- bias(b3,b4)
+  df_test <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  forecast = predict(best.linear, newdata = d4)
+  
+  b5 <- as.numeric(forecast)
+  d2$forecast <- b5
+  d2$gapfilled <- coalesce(d2[,c(5)], d2$forecast)
+  
+  dir <- file.path(wd1,'/')
+  f1 <- paste0("output",j,".csv")
+  f2 <- paste0("train",j,".csv")
+  f3 <- paste0("test",j,".csv")
+  
+  write.csv(d2,  paste0(dir, f1), row.names=FALSE)
+  write.csv(df_train,  paste0(dir, f2), row.names=FALSE)
+  write.csv(df_test,  paste0(dir, f3), row.names=FALSE)
+  
+  d7 <- d2[,c(5,7)]
+  d7.v2 <- na.omit(d7)
+  
+  b6 <- as.numeric(d7.v2$d1.SR)
+  b7 <- as.numeric(d7.v2$forecast)
+  
+  ms <- mse(b6,b7)
+  mae <- mae(b6,b7)
+  mape <- mape(b6,b7)
+  r2 <- cor(b6,b7)
+  rmse <- rmse(b6,b7)
+  pbias <- percent_bias(b6,b7)
+  bias <- bias(b6,b7)
+  
+  
+  df_full <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  f4 <- paste0("full",j,".csv")
+  write.csv(df_full,  paste0(dir, f4), row.names=FALSE)
+  
+  
+}
+
+#----------------------------------------------------------------------------------------------------------------------
+
+#5) Code 5: running the XGBOOST across the loop for 20 different versions of Soil respiration 
+
+a1 = 0.7  # for partitiong data into 70:30 ratios 
+
+# the relevant parameters 
+
+# nrounds: The maximum number of iterations (number of trees in final model).
+# colsample_bytree: The number of features, expressed as a ratio, to sample when building a tree. Default is 1 (100% of the features). 
+# min_child_weight: The minimum weight in the trees being boosted. Default is 1. 
+# eta: Learning rate, which is the contribution of each tree to the solution. Default is 0.3. 
+# gamma: Minimum loss reduction required to make another leaf partition in a tree. 
+# subsample: Ratio of data observations. Default is 1 (100%). 
+# max_depth: Maximum depth of the individual trees.
+
+
+library(readxl)
+library(tidyverse)
+library(xgboost)
+library(caret)
+library(corrplot)
+library(leaps)
+library(doParallel)
+library(xgboost)
+
+cntrl = trainControl(method = "cv", 
+                     number = 10,
+                     verboseIter = TRUE,
+                     returnData = FALSE, 
+                     returnResamp = "final" )
+
+cpu <- makeCluster(12)
+registerDoParallel(cpu)
+
+start <- Sys.time()
+
+for (j in 5:25){
+  
+  s3.v2 <- sr[,c(2:4,j)]
+  
+  s3.v3 <- na.omit(s3.v2)
+  
+  d5 <- s3.v3
+  
+  split = sample.split(d5,SplitRatio = a1)
+  trainc = subset(d5, split ==TRUE)
+  testc = subset(d5, split ==FALSE)
+  
+  names(trainc)[4] <- "sr"
+  names(testc)[4] <- "sr"
+  
+  newx <- as.matrix(trainc[, 1:3])
+  newy <- as.matrix(testc[, 1:3])
+  
+  x <- as.matrix(trainc[, 1:3])
+  
+  y <- trainc[,4]
+  
+  train_x <- data.matrix(trainc[, 1:3])
+  train_y <- trainc[, 4]
+  
+  test_x <- data.matrix(testc[, 1:3])
+  test_y <- testc[, 4]
+  
+  #Creates xgb.DMatrix objects for the training and testing data.
+  
+  xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+  
+  xgb_test = xgb.DMatrix(data = test_x, label = test_y)
+  
+  # Set the parameters for tuning
+  tune_control <- trainControl(method = "cv", 
+                               allowParallel = TRUE,
+                               number = 12)
+  
+  # Define the parameter grid for tuning
+  tune_grid <- expand.grid(nrounds = seq(from = 50, to = 600, by = 50),
+                           eta = c(0.1, 0.2, 0.3, 0.4),
+                           max_depth = seq(2, 10, by = 2),
+                           subsample = c(0.5, 0.7, 1),
+                           colsample_bytree = 1,
+                           min_child_weight = 1,
+                           gamma = 0)
+  
+  tune_grid <- expand.grid(nrounds = c(50),
+                           eta = c(0.1,0.2,0.3,0.4),
+                           max_depth = seq(2,10,by =2), 
+                           subsample = c(0.5, 0.7,1), 
+                           colsample_bytree =1,
+                           min_child_weight =1, 
+                           gamma =0)
+  
+  #cross validation and parameter tuning start 
+  
+  # Perform cross-validation and parameter tuning
+  xgb_tune <- train(x = xgb_train,
+                    method = "xgbTree",
+                    trControl = tune_control,
+                    tuneGrid = tune_grid)
+  
+  xgb_tune <- train (x = train_x, 
+                     y = train_y,
+                     method = "xgbTree", 
+                     trControl = tune_control,
+                     tuneGrid = tune_grid)
+  
+  # Retrieve the best parameters
+  best_params <- xgb_tune$bestTune
+  
+  
+  tune_grid2 <- expand.grid(nrounds = seq(from =50, to = 600, by =50), 
+                            eta = xgb_tune$bestTune$eta,
+                            max_depth = xgb_tune$bestTune$max_depth, 
+                            subsample = xgb_tune$bestTune$subsample, 
+                            colsample_bytree =c(0.5,0.7,1), 
+                            min_child_weight =seq(1,6, by =2), 
+                            gamma = c(0,0.05,0.1,0.15))
+  
+  xgb_tune2 <- train (x = train_x, 
+                      y = train_y,
+                      method = "xgbTree",
+                      trControl = tune_control, 
+                      tuneGrid = tune_grid2)
+  
+  
+  parameters3 <- list(eta = xgb_tune2$bestTune$eta, 
+                      max_depth = xgb_tune2$bestTune$max_depth, 
+                      subsample = xgb_tune2$bestTune$subsample, 
+                      colsample_bytree =xgb_tune2$bestTune$colsample_bytree,
+                      min_child_weight =xgb_tune2$bestTune$min_child_weight,
+                      nround = xgb_tune2$bestTune$nrounds,
+                      gamma = xgb_tune$bestTune$gamma,
+                      set.seed = 1502,
+                      eval_metric = "rmse",
+                      objective = "reg:squarederror", 
+                      booster = "gbtree")   
+  
+  model3 <- xgboost(data = xgb_train, 
+                    set.seed = 1502,  
+                    nthread = 6, 
+                    params = parameters3,
+                    print_every_n = 50,
+                    early_stopping_rounds = 20, verbose = 1)
+  
+  
+  # Train the final model using the best parameters
+  model <- xgboost(data = xgb_train,
+                   max.depth = best_params$max_depth,
+                   eta = best_params$eta,
+                   subsample = best_params$subsample,
+                   colsample_bytree = best_params$colsample_bytree,
+                   min_child_weight = best_params$min_child_weight,
+                   gamma = best_params$gamma,
+                   nrounds = best_params$nrounds)
+  
+  
+  
+  #train.x and test.x are matrix variables
+  importance <- xgb.importance(feature_names = colnames(test_x), model = model3)
+  
+  #xgb.plot.importance(importance_matrix = importance)          
+  train.probs = predict(model3, newdata = xgb_train)
+  
+  
+  b1 <- as.numeric(train.probs)
+  b2 <- as.numeric(trainc[,c(4)])
+  
+  ms <- mse(b1,b2)
+  mae <- mae(b1,b2)
+  mape <- mape(b1,b2)
+  r2 <- cor(b1,b2)
+  rmse <- rmse(b1,b2)
+  pbias <- percent_bias(b1,b2)
+  bias <- bias(b1,b2)
+  
+  df_train <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  
+  test.probs = predict(model3, xgb_test)
+  
+  
+  b3 <- as.numeric(test.probs)
+  b4 <- as.numeric(testc[,c(4)])
+  
+  ms <- mse(b3,b4)
+  mae <- mae(b3,b4)
+  mape <- mape(b3,b4)
+  r2 <- cor(b3,b4)
+  rmse <- rmse(b3,b4)
+  pbias <- percent_bias(b3,b4)
+  bias <- bias(b3,b4)
+  
+  
+  df_test <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  
+  forecast = predict(model3, 
+                     newdata = d4)
+  
+  b5 <- as.numeric(forecast)
+  d2$forecast <- b5
+  d2$gapfilled <- coalesce(d2[,c(5)], d2$forecast)
+  
+  
+  
+  dir <- file.path(wd1,'/')
+  f1 <- paste0("output",j,".csv")
+  f2 <- paste0("train_",j,".csv")
+  f3 <- paste0("test_",j,".csv")
+  
+  write.csv(d2,  paste0(dir, f1), row.names=FALSE)
+  write.csv(df_train,  paste0(dir, f2), row.names=FALSE)
+  write.csv(df_test,  paste0(dir, f3), row.names=FALSE)
+  
+  
+  d7 <- d2[,c(5,7)]
+  
+  #View(d7)
+  
+  d7.v2 <- na.omit(d7)
+  names(d7.v2)
+  
+  
+  b6 <- as.numeric(d7.v2$d1.d2.d1.SR)
+  b7 <- as.numeric(d7.v2$forecast)
+  
+  ms <- mse(b6,b7)
+  mae <- mae(b6,b7)
+  mape <- mape(b6,b7)
+  r2 <- cor(b6,b7)
+  rmse <- rmse(b6,b7)
+  pbias <- percent_bias(b6,b7)
+  bias <- bias(b6,b7)
+  
+  
+  df_full <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  f4 <- paste0("full",j,".csv")
+  write.csv(df_full,  paste0(dir, f4), row.names=FALSE)
+  
+  
+}
+
+#----------------------------------------------------------------------------------------------------------------------
+
+#6) Code 6: running the SVM across the loop for 20 different versions of Soil respiration
+
+#This R script is designed to train and evaluate XGBoost models across different versions of a dataset, 
+#with the primary goal of analyzing Soil Respiration. The script is well-structured and covers several 
+#crucial steps in machine learning workflows. Here are detailed comments on each section.
+
+#Setup and Library Loading:
+
+#a1 = 0.7: Sets the data splitting ratio for training and testing datasets.
+
+#Libraries (readxl, tidyverse, xgboost, caret, corrplot, leaps, doParallel) are loaded for data manipulation, modeling, and parallel processing.
+
+
+#Parallel Processing Setup:
+#Initializes a cluster with 12 CPU cores for parallel processing.
+
+
+#Data Preprocessing and Splitting in Loop:
+#The for loop iterates over a range (5 to 25), likely selecting different columns
+# from a dataset (sr) for each iteration.
+
+#Data is split into training and testing sets based on the a1 ratio.
+#Column names are standardized to "sr" for both training and testing sets.
+
+#XGBoost Model Training and Tuning:
+
+#Converts training and testing data into xgb.DMatrix format.
+
+#Sets up cross-validation and parameter tuning using trainControl 
+#and a defined tune_grid.
+
+#Trains XGBoost models with different parameter combinations, 
+#selecting the best parameters.
+
+#Model Training and Evaluation:
+
+#Trains the final XGBoost model using the best parameters.
+
+#Calculates feature importance and performs predictions on both 
+#training and testing datasets.
+
+#Computes various performance metrics (MSE, MAE, MAPE, R², RMSE, Percent Bias, Bias) 
+#for model evaluation.
+
+#Output Generation and Writing to Files:
+#Adds forecasts to d2 dataset and creates a gapfilled column.
+
+#Writes various output files (overall data, training, testing, and full evaluation results) 
+#to a specified directory.
+
+#Final Data Analysis for Each Iteration:
+
+#Performs additional analysis and writes the results to CSV files for each iteration of the loop.
+
+library(class)        #k-nearest neighbors
+library(kknn)         #weighted k-nearest neighbors
+library(e1071)        #SVM
+library(caret)        #select tuning parameters
+library(MASS)         # contains the data
+library(reshape2)     #assist in creating boxplots
+library(ggplot2)      #create boxplots
+library(kernlab)      #assist with SVM feature selection
+
+
+for (j in 5:25){
+  
+  
+  d4 <- as.matrix(sr[, c(2:4)])
+  s3.v2 <- sr[,c(2:4,j)]
+  
+  s3.v3 <- na.omit(s3.v2)
+  d5 <- s3.v3
+  
+  split = sample.split(d5,SplitRatio = a1)
+  
+  trainc = subset(d5, split ==TRUE)
+  testc = subset(d5, split ==FALSE)
+  
+  names(trainc)[4] <- "sr"
+  names(testc)[4] <- "sr"
+  
+  newx <- as.matrix(trainc[, 1:3])
+  newy <- as.matrix(testc[, 1:3])
+  
+  x <- as.matrix(trainc[, 1:3])
+  y <- trainc[,4]
+  
+  ## Importing relevant Library e1071
+  
+  # Radial Kernel  
+  
+  linear.tune <-  tune(svm, sr ~ ., 
+                       data = trainc, 
+                       kernel = "radial", 
+                       ranges = list(cost=c(0.001,0.01,0.1), 
+                                     gamma =c(0.01,0.1,0.5)), 
+                       cross = 10 )
+  
+  best.linear <- linear.tune$best.model
+  
+  train.probs = predict(best.linear, newdata = trainc)
+  
+  b1 <- as.numeric(train.probs)
+  b2 <- as.numeric(trainc[,c(4)])
+  
+  ms <- mse(b1,b2)
+  mae <- mae(b1,b2)
+  mape <- mape(b1,b2)
+  r2 <- cor(b1,b2)
+  rmse <- rmse(b1,b2)
+  pbias <- percent_bias(b1,b2)
+  bias <- bias(b1,b2)
+  
+  df_train <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  test.probs = predict(best.linear, newdata = testc)
+  
+  #plot(test.probs, testc$sr1, xlab = "Predicted", ylab = "Actual", main = "Ridge Regression")
+  
+  b3 <- as.numeric(test.probs)
+  b4 <- as.numeric(testc[,c(4)])
+  
+  ms <- mse(b3,b4)
+  mae <- mae(b3,b4)
+  mape <- mape(b3,b4)
+  r2 <- cor(b3,b4)
+  rmse <- rmse(b3,b4)
+  pbias <- percent_bias(b3,b4)
+  bias <- bias(b3,b4)
+  
+  df_test <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  forecast = predict(best.linear, newdata = d4)
+  b5 <- as.numeric(forecast)
+  
+  d2$forecast <- b5
+  d2$gapfilled <- coalesce(d2[,c(5)], d2$forecast)
+  
+  dir <- file.path(wd1,'/')
+  f1 <- paste0("output",j,".csv")
+  f2 <- paste0("train",j,".csv")
+  f3 <- paste0("test",j,".csv")
+  
+  write.csv(d2,  paste0(dir, f1), row.names=FALSE)
+  write.csv(df_train,  paste0(dir, f2), row.names=FALSE)
+  write.csv(df_test,  paste0(dir, f3), row.names=FALSE)
+  
+  
+  #d7 <- d2[,c(13,14)]
+  d7 <- d2[,c(5,7)]
+  #View(d7)
+  d7.v2 <- na.omit(d7)
+  #names(d7.v2)
+  
+  b6 <- as.numeric(d7.v2$d1.d2.d1.SR)
+  b7 <- as.numeric(d7.v2$forecast)
+  
+  
+  ms <- mse(b6,b7)
+  mae <- mae(b6,b7)
+  mape <- mape(b6,b7)
+  r2 <- cor(b6,b7)
+  rmse <- rmse(b6,b7)
+  pbias <- percent_bias(b6,b7)
+  bias <- bias(b6,b7)
+  
+  
+  df_full <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  f4 <- paste0("full",j,".csv")
+  write.csv(df_full,  paste0(dir, f4), row.names=FALSE)
+  
+  
+}
+
+#------------------------------------------------------------------------------------------------------------------------------------------
+
+# ANN
+#try different hidden layers =2,3.4
+
+library(caret)
+library(neuralnet)
+library("neuralnet")
+
+# This R script is designed to train and evaluate Artificial Neural Networks (ANNs) for 
+# different subsets of a dataset (related to Soil Respiration) using the neuralnet package. 
+# The script executes a loop to train models with different data selections. 
+# 
+# Here are detailed comments:
+#   
+#   Library Loading and Loop Setup:
+#   Loads necessary libraries: caret, neuralnet, and nnet. 
+# 
+# The for loop iterates from 5 to 25,  processing different columns of a dataset (sr) in each iteration.
+# 
+# Data Preprocessing and Splitting:
+#   Selects specific columns from sr, renames the target column to "sr", 
+# and removes rows with missing values.
+# 
+# Splits the data into training and testing sets based on a 
+# split ratio a1 (not defined in the provided code snippet; ensure it's defined elsewhere).
+# 
+# Scales the data using min-max scaling.
+# 
+# Neural Network Training:
+# Trains a neural network on the scaled training data with 
+# 2 hidden neurons (as well as 3 & 4).
+# 
+# Model Evaluation and Forecasting:
+# Uses the trained model to make predictions on the training, testing, and another dataset (d7a).
+# 
+# Computes various performance metrics (MSE, MAE, MAPE, R², RMSE, Percent Bias, Bias) for both training and testing datasets.
+# 
+# Output Generation and Writing to Files:
+# Writes training, testing, and other results to CSV files in a specified directory (wd1).
+# 
+# Final Analysis and File Writing for Each Iteration:
+# 
+# Performs additional analysis on a subset of the data and writes the results to CSV files
+
+for (j in 5:25){
+  
+  # the scaled function
+  
+  d4 <- as.matrix(sr[, c(2:4)])
+  s3.v2 <- sr[,c(2:4,j)]
+  
+  names(s3.v2)[4] <- "sr"
+  
+  s3.v3 <- na.omit(s3.v2)
+  d5 <- s3.v3
+  
+  #summary(d5)
+  split = sample.split(d5,SplitRatio = a1)
+  trainc = subset(d5, split ==TRUE)
+  testc = subset(d5, split ==FALSE)
+  
+  names(trainc)[4] <- "sr"
+  names(testc)[4] <- "sr"
+  
+  
+  max_data <- apply(d5, 2, max) 
+  min_data <- apply(d5, 2, min)
+  
+  d6 <- scale(d5,center = min_data,
+              scale = max_data - min_data) 
+  
+  #summary(d6)
+  
+  max_data1 <- apply(s3.v2, 2, max, na.rm = TRUE) 
+  min_data1 <- apply(s3.v2, 2, min, na.rm = TRUE)
+  
+  d7 <- scale(s3.v2,center = min_data1, 
+              scale = max_data1 - min_data1) 
+  
+  #  summary(d7)
+  
+  index = sample(1:nrow(d5),round(0.70*nrow(d5)))
+  train_data <- as.data.frame(d6[index,])
+  test_data <- as.data.frame(d6[-index,])
+  
+  n = names(d5)
+  
+  f = as.formula(paste("sr ~", paste(n[!n %in% "sr"], collapse = " + ")))
+  
+  
+  #try different hidden layers =2,3.4
+  
+  net_data = neuralnet(sr  ~ d1.par_diel + d1.ts_syn + d1.swc_seas, 
+                       data=train_data, 
+                       hidden=2,
+                       linear.output=T)
+  
+  #plot(net_data)
+  train.probs <- neuralnet::compute(net_data,train_data[,1:3])
+  test.probs <- neuralnet::compute(net_data,test_data[,1:3])
+  
+  d7a <- as.data.frame(d7)
+  
+  
+  forecast1 = predict(net_data, newdata = train_data[,1:3])
+  forecast2 = predict(net_data, newdata = test_data[,1:3])
+  forecast3 = predict(net_data,  newdata = d7a[,1:3])
+  
+  
+  b1 <- as.numeric(forecast1)
+  b2 <- as.numeric(train_data[,c(4)])
+  
+  ms <- mse(b1,b2)
+  mae <- mae(b1,b2)
+  mape <- mape(b1,b2)
+  r2 <- cor(b1,b2)
+  rmse <- rmse(b1,b2)
+  pbias <- percent_bias(b1,b2)
+  bias <- bias(b1,b2)
+  
+  df_train <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  b3 <- as.numeric(forecast2)
+  b4 <- as.numeric(test_data[,c(4)])
+  
+  
+  ms <- mse(b3,b4)
+  mae <- mae(b3,b4)
+  mape <- mape(b3,b4)
+  r2 <- cor(b3,b4)
+  rmse <- rmse(b3,b4)
+  pbias <- percent_bias(b3,b4)
+  bias <- bias(b3,b4)
+  
+  df_test <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  forecast = predict(net_data, newdata = d7a[,1:3])
+  
+  
+  b5 <- as.numeric(forecast)
+  d7a$forecast <- b5
+  d7a$gapfilled <- coalesce(d7a[,c(4)], d7a$forecast)
+  
+  
+  dir <- file.path(wd1,'/')
+  f1 <- paste0("output",j,".csv")
+  f2 <- paste0("train_",j,".csv")
+  f3 <- paste0("test_",j,".csv")
+  
+  #write.csv(d2,  paste0(dir, f1), row.names=FALSE)
+  write.csv(df_train,  paste0(dir, f2), row.names=FALSE)
+  write.csv(df_test,  paste0(dir, f3), row.names=FALSE)
+  
+  
+  d8 <- d7a[,c(4,5)]
+  
+  #View(d8)
+  
+  d8.v2 <- na.omit(d8)
+  names(d8.v2)
+  #View(d8.v2)
+  
+  #plot(d8.v2$sr, d8.v2$forecast)
+  
+  write.csv(d8.v2,  paste0(dir, f1), row.names=FALSE)
+  
+  b6 <- as.numeric(d8.v2$sr)
+  b7 <- as.numeric(d8.v2$forecast)
+  
+  ms <- mse(b6,b7)
+  mae <- mae(b6,b7)
+  mape <- mape(b6,b7)
+  r2 <- cor(b6,b7)
+  rmse <- rmse(b6,b7)
+  pbias <- percent_bias(b6,b7)
+  bias <- bias(b6,b7)
+  
+  
+  df_full <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  f4 <- paste0("full",j,".csv")
+  write.csv(df_full,  paste0(dir, f4), row.names=FALSE)
+  
+  
+}
+
+#--------------------------------------------------------------------------------------------------------------------------------------
+
+
+# Caret Package 
+
+#This R script appears to be designed for building and evaluating a stacked ensemble of 
+#machine learning models using the caret package. It iterates through different subsets 
+#of data to train and test these models. 
+
+#Data Preparation and Splitting:
+#The script selects columns from a dataset (sr) and then 
+#removes rows with missing values (na.omit).
+
+#Data is split into training (trainc) and testing (testc) sets 
+#based on a splitting ratio a1 .
+
+#The target variable for both training and testing data is renamed to "sr".
+
+#Model Training with Stacking:
+#trainControl: Sets up repeated cross-validation.
+#algorithmList: Specifies a list of algorithms to be used in the ensemble.
+#caretList: Trains multiple models specified in algorithmList on the training data.
+
+
+#Model Evaluation and Stacking:
+
+#results: Stores cross-validation results of all models.
+#caretStack: Stacks the trained models using a generalized linear model.
+#Predictions are made on both training and testing datasets.
+
+#Performance Metrics Calculation:
+#Calculates various performance metrics (MSE, MAE, MAPE, R², RMSE, Percent Bias, Bias) for training and testing predictions.
+
+#Forecasting and Output Writing:
+#Uses the stacked model to make forecasts on d4 (ensure d4 is correctly formatted for this prediction).
+
+#Writes various outputs to CSV files, including datasets with forecasts (d2) and performance metrics for training, testing, and overall data.
+#Final Analysis and File Writing:
+
+#Additional analysis is performed on a subset of d2 and written to a CSV file.
+
+
+
+for (j in 5:25){
+  
+  d4 <- as.matrix(sr[, c(2:4)])
+  s3.v2 <- sr[,c(2:4,j)]
+  s3.v3 <- na.omit(s3.v2)
+  d5 <- s3.v3
+  
+  split = sample.split(d5,SplitRatio = a1)
+  trainc = subset(d5, split ==TRUE)
+  testc = subset(d5, split ==FALSE)
+  
+  names(trainc)[4] <- "sr"
+  names(testc)[4] <- "sr"
+  
+  # Stacking Algorithms - Run multiple machine learning algorithms in one call.
+  trainControl <- trainControl(method="repeatedcv", number=10, repeats=3,
+                               savePredictions=TRUE, classProbs=TRUE)
+  
+  algorithmList <- c('enet',"svmRadial",'rf','xgbTree','nnet')
+  
+  models <- caretList(d1.d2.d1.SR ~ d1.d1.PAR + d1.d1.Tsoil   + d1.d1.SWC, 
+                      data=trainc,  trControl=trainControl, methodList=algorithmList) 
+  
+  
+  results <- resamples(models)
+  #summary(results)
+  
+  stack.glm <- caretStack(models, method="glm")
+  
+  train.probs = predict(stack.glm, newdata = trainc)
+  test.probs = predict(stack.glm, newdata = testc)
+  
+  
+  b1 <- as.numeric(train.probs)
+  b2 <- as.numeric(trainc[,c(4)])
+  
+  ms <- mse(b1,b2)
+  mae <- mae(b1,b2)
+  mape <- mape(b1,b2)
+  r2 <- cor(b1,b2)
+  rmse <- rmse(b1,b2)
+  pbias <- percent_bias(b1,b2)
+  bias <- bias(b1,b2)
+  
+  df_train <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  b3 <- as.numeric(test.probs)
+  b4 <- as.numeric(testc[,c(4)])
+  
+  ms <- mse(b3,b4)
+  mae <- mae(b3,b4)
+  mape <- mape(b3,b4)
+  r2 <- cor(b3,b4)
+  rmse <- rmse(b3,b4)
+  pbias <- percent_bias(b3,b4)
+  bias <- bias(b3,b4)
+  
+  df_test <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  forecast <- predict(stack.glm, newdata = d4)
+  b5 <- as.numeric(forecast)
+  d2$forecast <- b5
+  d2$gapfilled <- coalesce(d2[,c(5)], d2$forecast)
+  
+  dir <- file.path(wd1,'/')
+  
+  f1 <- paste0("output_",1,".csv")
+  f2 <- paste0("train_",j,".csv")
+  f3 <- paste0("test_",j,".csv")
+  
+  write.csv(d2,  paste0(dir, f1), row.names=FALSE)
+  write.csv(df_train,  paste0(dir, f2), row.names=FALSE)
+  write.csv(df_test,  paste0(dir, f3), row.names=FALSE)
+  
+  d7 <- d2[,c(5,7)]
+  d7.v2 <- na.omit(d7)
+  
+  b6 <- as.numeric(d7.v2$d1.d2.d1.SR)
+  b7 <- as.numeric(d7.v2$forecast)
+  
+  
+  ms <- mse(b6,b7)
+  mae <- mae(b6,b7)
+  mape <- mape(b6,b7)
+  r2 <- cor(b6,b7)
+  rmse <- rmse(b6,b7)
+  pbias <- percent_bias(b6,b7)
+  bias <- bias(b6,b7)
+  
+  
+  df_full <- data.frame(ms,mae,mape,r2,rmse, pbias,bias)
+  
+  f4 <- paste0("full",j,".csv")
+  write.csv(df_full,  paste0(dir, f4), row.names=FALSE)
+  
+}
+
+#--------------------------------------------------------------------------------------------------------------------------------------
+
+# Bayesian approaches
+
+
+#The code is utilizing several R packages, including rstanarm, bayesplot, and ggplot2. 
+#It fits a Bayesian generalized linear regression model using the stan_glm 
+#function from rstanarm package.
+
+library(rstanarm)
+#: Loads the rstanarm package, which provides a simplified interface for 
+#fitting Bayesian models using Stan.
+library(bayesplot)
+#: Loads the bayesplot package, which offers functions for 
+#visualizing Bayesian models.
+library(ggplot2)
+#: Loads the ggplot2 package for creating graphics in R.
+
+
+# The Bayesian model 
+#load the packages we'll need
+# Determine the default Bayesian parameters : burn in period, number of chains, number of simulations 
+# simple model
+
+#: Fits a Bayesian generalized linear regression model using 
+#the stan_glm function. 
+
+# Different versions of stan_glm, whereby the different arguments
+#including number of iterations (iter), warm-up iterations (warmup), 
+#and control parameters for the model are regulated.
+
+# Version 1
+
+fit_1 <- stan_glm(d1.d2.d1.SR ~ d1.par_diel + d1.ts_syn + d1.swc_seas + d1.pa_seas, data = sr)
+
+# Version 2
+#Changing the number and length of chains
+
+fit_1 <- stan_glm(d1.d2.d1.SR ~ d1.par_diel + d1.ts_syn + d1.swc_seas + 
+                    d1.pa_seas, data = sr, iter = 10000, warmup = 3000,
+                  control = list(adapt_delta = 0.95,  max_treedepth = 15))
+
+
+# Version 3
+fit_1 <- stan_glm(sr ~ d1.par_diel + d1.ts_syn + d1.swc_seas, data = sr,
+                  iter = 30000, warmup = 6000, prior_intercept = normal(), 
+                  prior = normal(),prior_aux = normal())
+
+# Version 4
+fit_1 <- stan_glm(sr ~ d1.par_diel + d1.ts_syn + d1.swc_seas, data = sr,
+                  iter = 30000, warmup = 6000, family = gaussian(link = "identity"), 
+                  seed = 12345)
+
+#summary(stan_model)
+#prior_summary(fit_1)
+
+#sigma: Standard  deviation  of errors
+#mean_PPD:  mean of posterior predictive samples
+#log-posterior:  analogous  to a likelihood
+#Rhat: a measure of within  chain variance  compared  to across chain variance
+#Values less than 1.1  indicate convergence
+
+
+# request the summary of the model
+#: Generates a summary of the fitted model.
+summarySingleLevelModel <- summary(fit_1)
+
+
+
+# Looking at distribution of posterior parameter samples
+
+samples <- fit_1 %>% as.data.frame %>% tbl_df
+
+# samples
+
+p1 <- ggplot(samples) + 
+  aes(x = d1.par_diel) + 
+  geom_histogram()+
+  xlab("PAR") +  
+  ylab("Frequency")
+
+
+.
+#The posterior predictive distribution is the distribution of 
+#the outcome implied by the model after using the observed data to 
+#update our beliefs about the unknown parameters in the model. 
+
+#Simulating data from the posterior predictive distribution using 
+#the observed predictors is useful for checking the fit of the model.
+
+#Drawing from the posterior predictive distribution at interesting values
+#of the predictors also lets us visualize how a manipulation of a predictor
+#affects (a function of) the outcome(s).
+#With new observations of predictor variables we can use the posterior 
+#predictive distribution to generate predicted outcomes.
+
+# Different posterior predictive checks
+
+#Creating credible intervals
+posterior_interval(stan_model, prob= 0.95)
+
+#: Produces posterior predictive checks for the model, visualized using ggplot2.
+pp_check(fit_1, "stat")
+
+# Compare distribution of y to distributions of multiple yrep datasets
+pp_check(fit_1)
+
+pp_check(fit_1, plotfun = "boxplot", nreps = 10, notch = FALSE)
+
+#pp_check(fit_1, plotfun = "hist", nreps = 3)
+#`stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+
+# Scatterplot of two test statistics
+pp_check(fit_1, plotfun = "stat_2d", stat = c("mean", "sd"))
+
+# Scatterplot of y vs. average yrep
+pp_check(fit_1, plotfun = "scatter_avg") # y vs. average yrep
+
+# Scatterplots of y vs. several individual yrep datasets
+pp_check(fit_1, plotfun = "scatter", nreps = 3)
+
+
+
+#Generating Predictions:
+#: Generates posterior predictions for new data d3 using the fitted model.
+
+preds <- posterior_predict(fit_1, newdata = d3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
